@@ -1,13 +1,17 @@
-fastapi>=0.115,<1
-uvicorn>=0.30,<1
+# Python 3.11-3.13. Wheels below publish manylinux aarch64 builds, so they install on
+# Debian ARM (Arduino UNO Q, Raspberry Pi 64-bit) with pip. FFmpeg itself is a system package:
+#   sudo apt-get install -y ffmpeg python3 python3-pip python3-venv
+fastapi>=0.115.0,<1
+uvicorn>=0.32.0,<1
 python-multipart>=0.0.18
-yt-dlp[default]
-edge-tts
-numpy>=1.26,<3
-Pillow>=10
-faster-whisper>=1.2,<2
-opencv-python-headless
-streamlink
-pytchat
-av>=11,<19
-static-ffmpeg
+python-dotenv>=1.0.1,<2
+yt-dlp[default]>=2025.1.15
+edge-tts>=6.1.12
+numpy>=1.26.4,<3
+Pillow>=10.4.0
+faster-whisper>=1.1.0,<2
+ctranslate2>=4.5.0
+opencv-python-headless>=4.10.0
+streamlink>=6.11.0
+pytchat>=0.5.5
+av>=12,<19

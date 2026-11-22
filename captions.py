@@ -71,19 +71,10 @@ def collapse_repeats(words,limit=3):
 
 TURBO_FILES=('model.bin','config.json','tokenizer.json','vocabulary.json')
 def _turbo_spec():
-    """Path of a COMPLETE large-v3-turbo snapshot. A half-finished download (only model.bin) used to fail every job with
-    "Cannot load the vocabulary from the model directory", so an incomplete one is repaired (missing small files only)."""
+    """Path of a COMPLETE large-v3-turbo snapshot already on disk. Does not download one."""
     repo='mobiuslabsgmbh/faster-whisper-large-v3-turbo'
     snaps=Path.home()/('.cache/huggingface/hub/models--'+repo.replace('/','--')+'/snapshots')
-    def complete():
-        return [p for p in snaps.glob('*') if all((p/f).exists() for f in TURBO_FILES)]
-    ok=complete()
-    if not ok:
-        try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(repo)
-            ok=complete()
-        except Exception:pass
+    ok=[p for p in snaps.glob('*') if all((p/f).exists() for f in TURBO_FILES)]
     return str(ok[0]) if ok else 'small'
 
 LOCK=threading.Lock()

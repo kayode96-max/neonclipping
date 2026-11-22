@@ -1,15 +1,11 @@
-# NeonClipping launcher (Windows). Creates .venv on first run, starts the app, opens the browser.
+# Start NeonClipping from this folder. Install first with .\install.ps1
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-if (-not (Test-Path .venv/Scripts/python.exe)) {
-    python -m venv .venv
-    .venv/Scripts/python.exe -m pip install -r requirements.txt
+$py = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+if (-not (Test-Path $py)) {
+    Write-Host "No .venv in this folder. Run .\install.ps1 first."
+    exit 1
 }
-if (-not $env:NEONCLIPPING_PORT) {
-    $port = 8770
-    $busy = Get-NetTCPConnection -LocalPort 8770 -State Listen -ErrorAction SilentlyContinue
-    if ($busy) { $port = 8771 }
-    $env:NEONCLIPPING_PORT = "$port"
-}
+if (-not $env:NEONCLIPPING_PORT) { $env:NEONCLIPPING_PORT = '8770' }
 Start-Process "http://127.0.0.1:$env:NEONCLIPPING_PORT"
-.venv/Scripts/python.exe app.py
+& $py app.py

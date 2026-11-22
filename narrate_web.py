@@ -1,11 +1,14 @@
 """Web hooks for the narrated pipeline: POST /narrate, GET /narrate/{job}, GET /narrate-file?path=..., page at /narrate-ui."""
 import threading, uuid, time, os
 from pathlib import Path
+import envload
+envload.load()
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 
 JOBS = {}
-OUT_ROOT = Path(os.environ.get('NEONCLIPPING_NARRATE_OUT', '/workspace/gta6_out')).resolve()
+_ROOT = Path(__file__).resolve().parent
+OUT_ROOT = Path(os.environ.get('NEONCLIPPING_NARRATE_OUT') or (_ROOT / 'data' / 'narrate-out')).resolve()
 
 def attach(app):
     @app.post('/narrate')

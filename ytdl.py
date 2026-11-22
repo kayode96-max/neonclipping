@@ -1,51 +1,23 @@
 """One place for every YouTube / yt-dlp call, so a "Sign in to confirm you're not a bot" block does not stop people.
 
 What it does
-1. Keeps yt-dlp fresh (YouTube changes often; an old yt-dlp is the most common reason downloads fail). Checked at most once a day.
-2. Wraps yt-dlp in YDL, a drop-in for yt_dlp.YoutubeDL. When YouTube answers with the bot check (or a 403/429), it retries with
+1. Wraps yt-dlp in YDL, a drop-in for yt_dlp.YoutubeDL. When YouTube answers with the bot check (or a 403/429), it retries with
    other settings instead of failing: your own cookies (only if you set them up), then other YouTube player clients.
-3. If everything is blocked it raises ONE short, readable message that says what to do (upload the MP4, use your browser login).
+2. If everything is blocked it raises ONE short, readable message that says what to do (upload the MP4, use your browser login).
+
+The installed yt-dlp is whatever pip installed. This module does not upgrade packages and does not download code.
 
 Optional cookies (never read unless you ask for them):
   NEONCLIPPING_COOKIES_BROWSER=chrome|edge|firefox|brave   use the login of that browser on this computer
   NEONCLIPPING_COOKIES_FILE=path\\to\\cookies.txt          a Netscape cookies.txt exported from your browser
   data/youtube_cookies.txt                                 same file, picked up automatically if it exists
   data/ytdl.json                                           {"cookies_browser": "chrome"} instead of environment variables
-Set NEONCLIPPING_NO_AUTOUPDATE=1 to turn off the daily yt-dlp update.
 """
 from pathlib import Path
-import json, os, subprocess, sys, time
+import json, os
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('NEONCLIPPING_DATA_DIR', str(ROOT / 'data')))
-UPDATE_EVERY = 24 * 3600
-
-def update_ytdlp(force=False):
-    """pip-upgrade yt-dlp (with its YouTube helper extras) at most once a day. Silent and offline-safe."""
-    if os.environ.get('NEONCLIPPING_NO_AUTOUPDATE') == '1' and not force:
-        return False
-    stamp = DATA / '.ytdlp_checked'
-    try:
-        if not force and time.time() - stamp.stat().st_mtime < UPDATE_EVERY:
-            return False
-    except OSError:
-        pass
-    ok = False
-    try:
-        r = subprocess.run([sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp[default]', '--quiet',
-                            '--disable-pip-version-check', '--retries', '0', '--timeout', '8'],
-                           capture_output=True, timeout=120)
-        ok = r.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        pass
-    try:
-        DATA.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(time.strftime('%Y-%m-%d %H:%M:%S') + (' ok' if ok else ' failed'), encoding='utf-8')
-    except OSError:
-        pass
-    return ok
-
-update_ytdlp()          # must run before yt_dlp is imported so the new version is the one that loads
 import yt_dlp
 
 BLOCK_MARKERS = ('not a bot', 'sign in to confirm', 'cookies-from-browser', 'http error 403', 'http error 429', 'too many requests')
