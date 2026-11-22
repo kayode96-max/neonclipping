@@ -13,9 +13,10 @@ import cv2
 W, H, FPS = 160, 90, 6
 
 
-def analyze(path, start, dur):
+def analyze(path, start, dur, cheap=False):
+    fps = 2 if cheap else FPS
     cmd = ['ffmpeg', '-v', 'error', '-ss', f'{max(0, start):.2f}', '-t', f'{dur:.2f}', '-i', str(path), '-an',
-           '-vf', f'fps={FPS},scale={W}:{H}', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']
+           '-vf', f'fps={fps},scale={W}:{H}', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']
     raw = subprocess.run(cmd, capture_output=True).stdout
     size = W * H * 3
     n = len(raw) // size
@@ -29,8 +30,11 @@ def analyze(path, start, dur):
         if float(np.mean(cv2.absdiff(gray[i], gray[i - 1]))) > 38:
             cuts += 1
             continue
-        f = cv2.calcOpticalFlowFarneback(gray[i - 1], gray[i], None, .5, 2, 9, 2, 5, 1.1, 0)
-        flows.append(float(np.percentile(np.hypot(f[..., 0], f[..., 1]), 90)))
+        if cheap:
+            flows.append(float(np.mean(cv2.absdiff(gray[i], gray[i - 1]))) / 4.0)
+        else:
+            f = cv2.calcOpticalFlowFarneback(gray[i - 1], gray[i], None, .5, 2, 9, 2, 5, 1.1, 0)
+            flows.append(float(np.percentile(np.hypot(f[..., 0], f[..., 1]), 90)))
     motion = float(np.mean(flows)) if flows else 0.0
     # flash: luminance jump up (>= 18 levels in one step) followed by a drop = a short bright burst, not a cut
     d = np.diff(lum)
@@ -44,7 +48,7 @@ def analyze(path, start, dur):
     sign = np.where(diff > 0.004, 1, np.where(diff < -0.004, -1, 0))
     nz = sign[sign != 0]
     alternations = int(np.sum(nz[1:] != nz[:-1])) if len(nz) > 1 else 0
-    secs = n / FPS
+    secs = n / fps
     return {
         'motion': float(min(1.0, motion / 8.0)),                 # ~8 px/frame at 160x90 = very fast action
         'flash': float(min(1.0, flash_events / max(secs / 6.0, 1.0) / 3.0)),

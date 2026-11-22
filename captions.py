@@ -45,7 +45,12 @@ def _load(WhisperModel,spec,data):
             list(m.transcribe(__import__('numpy').zeros(16000,dtype='float32'))[0])   # prove cuDNN/cuBLAS really load
             return m
         except Exception:pass
-    return WhisperModel(spec,device='cpu',compute_type='int8',cpu_threads=max(1,(os.cpu_count() or 4)-2),download_root=str(data/'models'))
+    cpu_threads=max(1,(os.cpu_count() or 4)-2)
+    try:
+        import lowpower
+        if lowpower.enabled():cpu_threads=lowpower.threads() or 1
+    except Exception:pass
+    return WhisperModel(spec,device='cpu',compute_type='int8',cpu_threads=cpu_threads,download_root=str(data/'models'))
 def ascii_fold(text):
     """Hinglish is written in plain English letters: fold accents (nosga, funcao) and drop stray non-Latin symbols Whisper hallucinates."""
     import unicodedata
@@ -96,7 +101,8 @@ def transcribe(source,start,end,data,report=lambda message:None,language=None,mo
     from faster_whisper import WhisperModel
     spec=model or os.environ.get('FACECAM_ASR_MODEL','') or (_best_hindi() if language in ('hi','hinglish') else '')
     if not spec:
-        spec=_turbo_spec()
+        import lowpower
+        spec=lowpower.asr_model(language) if lowpower.enabled() else _turbo_spec()
     model_tag=Path(spec).name[:14]
     key=f'{source.stem}-{start:.2f}-{end:.2f}-{language or "auto"}-{model_tag}-v3'
     cached=data/(key+'.words.json')
@@ -111,7 +117,9 @@ def transcribe(source,start,end,data,report=lambda message:None,language=None,mo
             report('Transcribing selected clip locally')
             # 'hinglish' = Hindi speech written in Roman letters (a Roman-script prompt steers Whisper to it)
             prompt=DEVA_PROMPT if language in ('hi','hinglish') else None
-            segments,info=MODEL.transcribe(_load_audio(audio),beam_size=5,language=('hi' if language=='hinglish' else language) or None,initial_prompt=prompt,word_timestamps=True,vad_filter=True,condition_on_previous_text=False)
+            import lowpower
+            beam=1 if lowpower.enabled() else 5
+            segments,info=MODEL.transcribe(_load_audio(audio),beam_size=beam,language=('hi' if language=='hinglish' else language) or None,initial_prompt=prompt,word_timestamps=True,vad_filter=True,condition_on_previous_text=False)
             words=[]
             for segment in segments:
                 report(f'speech {int(segment.end)}/{int(end-start)} s')

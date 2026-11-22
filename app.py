@@ -132,6 +132,8 @@ def export(b:dict):
    w=max(2,min(m['w']-x,int(values[2]*m['w'])));h=max(2,min(m['h']-y,int(values[3]*m['h'])))
    rects.append((x,y,w,h))
  except (KeyError,ValueError,TypeError,OverflowError):raise HTTPException(400,'Check crop regions, face height and caption position.')
+ import lowpower
+ b=lowpower.tune_output(b)
  try:width,height,fps=output_settings(b)
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  if b.get('captions') and 'words' in b:
@@ -177,7 +179,8 @@ def export(b:dict):
    if fps:base+=['-r',str(fps),'-fps_mode','cfr']
    for encoder in encoders.h264(cq=20,x264_preset='fast',nv_preset='p5'):
     # NVIDIA: also decode the source on the GPU (4K VP9/AV1 on the CPU is what pinned it at 100%); retry on the CPU if that fails.
-    for hw in ((['-hwaccel','auto'],[]) if encoder[1]!='libx264' and encoder[1]!='h264_videotoolbox' else ([],)):
+    # v4l2m2m (Pi / UNO Q) and the CPU encoders must not take -hwaccel auto.
+    for hw in ((['-hwaccel','auto'],[]) if encoder[1] not in ('libx264','h264_videotoolbox','h264_v4l2m2m') else ([],)):
      r=subprocess.run(base[:4]+hw+base[4:]+encoder+['-pix_fmt','yuv420p',str(out)],capture_output=True,text=True,cwd=str(DATA))
      if r.returncode==0:break
     if r.returncode==0:break
@@ -192,7 +195,9 @@ except ValueError:LIVE_AUTO_HOURS=3.0
 PAD=4.0         # seconds fetched before a section: yt-dlp cuts on a keyframe, export trims exactly
 FAST_OVER=600   # seconds: longer videos go audio-first, short ones are downloaded whole
 def _yt(opts):
- return ytdl.YDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,**opts})
+ import lowpower
+ frags=2 if lowpower.enabled() else 6
+ return ytdl.YDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':frags,**opts})
 def _dur(p):
  r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(p)],capture_output=True,text=True,check=True);return float(r.stdout.strip())
 
@@ -235,6 +240,7 @@ def ai_found(moments,yt_words,duration):
 def make(b:dict):
  """One click. Short video: download, smart highlights, export. Long video (PeakCut-style): download AUDIO only, pick moments from
  audio + transcript, then fetch just those video sections. Clips stream into state[job]['clips']."""
+ import lowpower
  url,src0=app.neon['new_source'](b);save=app.neon['save']
  try:
   count=max(1,min(12,int(b.get('count',4))));raw_max=float(b.get('max_len',b.get('length',60)));raw_min=float(b.get('min_len',30))
@@ -247,7 +253,7 @@ def make(b:dict):
   if not isinstance(moments,list) or not 1<=len(moments)<=40 or not all(isinstance(m,dict) for m in moments):raise HTTPException(400,'Moments must be a list of 1 to 40 items with start and end.')
   count=min(24,len(moments))
  mode='deep' if b.get('mode')=='deep' else 'fast'
- src_h=source_height(b.get('source_height'))     # how sharp the downloaded source is: 1080p by default, 4K or 720p on request
+ src_h=lowpower.cap_download(source_height(b.get('source_height')),b.get('source_touched'))     # 1080p by default; 720p on a small ARM board unless the user picked a height
  profile=b.get('moment_profile','balanced')
  if profile not in curation.PROFILES:raise HTTPException(400,'Choose Balanced, Action or Dialogue moments.')
  try:focus_brief,include_phrases,exclude_phrases=curation.focus_settings(b)
@@ -300,16 +306,19 @@ def make(b:dict):
     def one(c):
      tmp=None
      try:
+      if lowpower.enabled() and mode!='deep':
+       c['_act']=None          # the scan already scored motion on a 160x90 proxy; skip the second Farneback pass
+       return
       f,off=locate(c)
       tmp=f if str(f).startswith(str(DATA)) and Path(f).name.startswith('lr_') else None
-      c['_act']=action.analyze(f,off,c['end']-c['start'])
+      c['_act']=action.analyze(f,off,c['end']-c['start'],cheap=lowpower.enabled())
       if b.get('vision_review'):
        try:c['visual_review']=vision.review(f,off,c['end']-c['start'],DATA,lambda message:save(job,{'stage':message}))
        except Exception as error:c['visual_error']=str(error)[-160:]
      except Exception as e:c['_act']=None;c['reason']=c.get('reason','')+' (no action check)'
      finally:
       if tmp:Path(tmp).unlink(missing_ok=True)
-    with _TP(max_workers=4) as ex:list(ex.map(one,top))
+    with _TP(max_workers=lowpower.workers(4)) as ex:list(ex.map(one,top))
     for key in ('motion','flash','strobe','cuts'):
      vals=[c['_act'][key] for c in top if c.get('_act')]
      if not vals:continue
@@ -368,10 +377,10 @@ def make(b:dict):
       except Exception:
        if attempt==2:raise
        time.sleep(3*(attempt+1))
-    pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
+    pool=ThreadPoolExecutor(max_workers=lowpower.workers(3));sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
    else:
     if url:
-     save(job,{'stage':'Downloading source ('+quality_label(src_h)+')','progress':.02});sid,p=app.neon['download'](url,job,src_h)
+     save(job,{'stage':'Downloading source ('+quality_label(src_h)+')','progress':.02});sid,p=app.neon['download'](url,job,src_h,touched=bool(b.get('source_touched')))
     else:sid,p=src0.stem,src0
     meta=probe(p);duration=meta['duration'];save(job,{'source_id':sid,'meta':meta,'stage':'Finding moments','progress':.1})
     found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.1+.5*f}),language,DATA,min_len,True,yt_words,mode=='deep',W,False,profile,focus_brief,include_phrases,exclude_phrases)
@@ -436,10 +445,18 @@ def live_render(sess,start,dur,why,chat_feature):
  o=sess.opts;name=uuid.uuid4().hex;out=DATA/(name+'.mp4');T={};_t=time.time()
  def lap(k):
   nonlocal _t;T[k]=round(time.time()-_t,1);_t=time.time()
- for enc in encoders.h264(cq=21,x264_preset='veryfast',nv_preset='p4'):
-  r=subprocess.run(['ffmpeg','-y','-v','error','-ss',f'{start:.2f}','-i',str(sess.rec),'-t',f'{dur:.2f}',*enc,'-c:a','aac','-b:a','160k',str(out)],capture_output=True,text=True)
-  if r.returncode==0 and out.exists() and out.stat().st_size>10000:break
- else:raise RuntimeError('Could not cut the clip from the recording: '+r.stderr[-150:])
+ import lowpower
+ copied=False
+ if lowpower.enabled():
+  # stream-copy the window, then the export graph encodes once (crop + captions + audio)
+  r=subprocess.run(['ffmpeg','-y','-v','error','-ss',f'{start:.2f}','-i',str(sess.rec),'-t',f'{dur:.2f}','-c','copy',str(out)],capture_output=True,text=True)
+  copied=r.returncode==0 and out.exists() and out.stat().st_size>10000
+  if not copied:out.unlink(missing_ok=True)
+ if not copied:
+  for enc in encoders.h264(cq=21,x264_preset='veryfast',nv_preset='p4'):
+   r=subprocess.run(['ffmpeg','-y','-v','error','-ss',f'{start:.2f}','-i',str(sess.rec),'-t',f'{dur:.2f}',*enc,'-c:a','aac','-b:a','160k',str(out)],capture_output=True,text=True)
+   if r.returncode==0 and out.exists() and out.stat().st_size>10000:break
+  else:raise RuntimeError('Could not cut the clip from the recording: '+r.stderr[-150:])
  real=_dur(out);lap('cut')
  lang=o.get('language') or None;want_caps=o.get('captions',True) is not False
  if want_caps:
@@ -619,7 +636,9 @@ def readiness():
  try:free=shutil.disk_usage(DATA).free/1024**3
  except Exception:free=0
  add('disk','Disk',free>=5,f'{free:.0f} GB free','Free some disk space (clips and downloads need several GB).')
- return {'items':items,'ok':all(i['ok'] for i in items if i['key'] in ('ffmpeg','disk'))}
+ import lowpower
+ if lowpower.enabled():add('power','Board',True,'low-power profile','720p30, ultrafast, tiny/base speech. Set NEONCLIPPING_LOW_POWER=0 for full desktop quality.')
+ return {'items':items,'ok':all(i['ok'] for i in items if i['key'] in ('ffmpeg','disk')),'low_power':lowpower.enabled()}
 
 @app.get('/llm/settings')
 def llm_settings_get():
@@ -692,6 +711,8 @@ aiparts.attach(app)
 facecam_detect.attach(app,DATA)
 brands.attach(app,DATA)
 hooks.attach(app)
+import narrate_web
+narrate_web.attach(app)
 import transcripts
 transcripts.attach(app,DATA,state,probe,transcribe)
 import vision

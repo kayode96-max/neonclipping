@@ -133,7 +133,10 @@ def find(src,duration,count,length,report,language=None,data=None,min_len=None,m
             if words:      # YouTube transcript already in hand: no speech model needed
                 from captions_yt import window
                 r={'words':window(words,c['start'],c['end']),'language':'yt'}
-            else:r=transcribe(src,c['start'],c['end'],data,lambda m:None,language,'small' if deep else SCOUT_MODEL)
+            else:
+                import lowpower
+                scout,strong=('tiny','base') if lowpower.enabled() else (SCOUT_MODEL,'small')
+                r=transcribe(src,c['start'],c['end'],data,lambda m:None,language,strong if deep else scout)
             text=' '.join(w['text'] for w in r['words'])
             c['transcript']=text;c['language']=r.get('language');c['words']=r['words'];snap(c,c['words'],min_len or length*.5,length)
             text=' '.join(w['text'] for w in c['words']);c['transcript']=text

@@ -141,6 +141,7 @@ Set `NEONCLIPPING_CPU=1` to force CPU. Set `NEONCLIPPING_PORT=9000` to use anoth
 | File | Job |
 |---|---|
 | `app.py` | FastAPI server, `/make` pipeline, export, library |
+| `lowpower.py` | 720p30 / ultrafast profile for small ARM boards |
 | `smart.py` | Moment scoring: transcript + local LLM, sentence snapping |
 | `highlights.py` | Audio-jump / shout / optical-flow / cut ranking, parallel decode |
 | `captions_yt.py` | YouTube word-timed captions (json3) parser |
@@ -303,3 +304,51 @@ Pick **Heading look** in step 04: *Impact* (default: big bold text, one accent w
 ## Cloud AI (optional)
 
 A slow PC without a GPU can use a cloud model instead of Ollama for scoring moments and writing titles and hooks. Open **Cloud AI (optional)** on the page, pick a provider (Groq, OpenRouter, Gemini, OpenAI or LM Studio), paste your key, press **Test connection**, tick **Use Cloud AI** and Save. Only the *text* of candidate clips is sent to your provider; videos, audio and frames never leave your PC. The key is stored in `data/llm.json` on your computer and is never shown again. Speech-to-text still uses YouTube's captions or the local model. Environment variables `NEONCLIPPING_LLM_BASE_URL`, `NEONCLIPPING_LLM_MODEL` and `NEONCLIPPING_LLM_KEY` also work.
+
+## Narrated clips (branch `narration`)
+
+`narrate.py` turns footage into **narrated** videos instead of clips with the original sound: Gemini looks at sampled frames, writes a
+scene timeline and a voiceover script (~2.5 words/sec; tone `hype`, `storyteller` or `news`), edge-tts speaks it (free; ElevenLabs optional),
+the game audio is ducked to ~15% under the voice (or muted), and GTA Neon captions follow the narration word by word. Shorts are full-screen
+1080x1920 @60fps with a smart crop that follows the action and a hook title for the first 3 s; `--long` also builds a 1920x1080 breakdown
+with intro, chapters and outro (chapter markers in the MP4 and timestamps in the description). Each video gets a `.json` and `.txt` with
+title, description, tags, hashtags and TikTok caption. Captions follow the voiceover's word boundaries, so this pipeline never runs faster-whisper.
+On a small ARM board the same command uses the low-power sizes below.
+
+    export GEMINI_API_KEY=...            # required
+    .venv/bin/python narrate.py "https://www.youtube.com/watch?v=QdBZY2fkU-0" --shorts 3 --long --out /workspace/gta6_out
+    .venv/bin/python narrate.py URL --rerender out/short_01_*.json --voice en-US-ChristopherNeural   # re-voice without new Gemini calls
+
+Options: `--tone`, `--voice`, `--tts edge|elevenlabs` (needs `ELEVENLABS_API_KEY`), `--audio duck|mute`, `--duck 0.15`, `--fill 1.0`,
+`--min-len/--max-len`, `--fps`, `--plan plan.json`, `--low-power`, `--no-low-power`. Web page: **Narrated clips** in the sidebar (`/narrate-ui`). Gemini answers are cached in
+`data/narrate/gemini/`, so re-running the same video is fast.
+
+## Running on Arduino UNO Q / Raspberry Pi
+
+A Qualcomm QRB2210 board (quad Cortex-A53 around 2 GHz, 2 GB or 4 GB RAM, Adreno, Debian, no CUDA) and a Raspberry Pi spend most of their time in three places: x264 at 1080×1920 60 fps with `-preset medium`, optical-flow scans, and a large local speech model. NeonClipping turns a low-power profile on by itself on 32-bit or 64-bit ARM with 4 or fewer cores, or about 4 GB of RAM or less. Force it with `NEONCLIPPING_LOW_POWER=1` or `narrate.py --low-power`. Force the desktop path with `NEONCLIPPING_LOW_POWER=0` or `--no-low-power`. A PC or Mac is unchanged.
+
+What changes when the profile is on:
+
+- Video encode uses `-preset ultrafast` and at most 2 threads. If ffmpeg can encode with `h264_v4l2m2m`, that hardware encoder is tried first and libx264 is the fallback.
+- Narrated shorts are 720×1280 at 30 fps. Long-form is 1280×720 at 30 fps. The studio downloads YouTube at 720p and exports 720p30 unless you pick another quality or frame rate on the page.
+- Narrated clips do not run faster-whisper. The voiceover is edge-tts and the captions are its word boundaries. The studio still prefers YouTube captions. When a video has none, it uses the `tiny` int8 model (`base` for Hindi / Hinglish) instead of a large one.
+- Gemini gets fewer, smaller JPEGs, grabbed in one ffmpeg call and cached. Motion is a 160×90 frame-difference proxy (one decode), not a second optical-flow pass, unless you pick Deep.
+- Crop, scale, captions and the ducked audio mix are one ffmpeg graph. Downloads are cached under `data/`. Parallel downloads and scans stay at one job so a 2 GB board does not swap.
+
+Install ffmpeg, a virtualenv and edge-tts:
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg python3-venv python3-pip
+git clone https://github.com/iamajmeena/neonclipping
+cd neonclipping
+python3 -m venv .venv
+# narrated clips only (small install)
+.venv/bin/pip install -r requirements.txt
+# requirements.txt includes edge-tts. On a 2 GB board you can instead install just:
+# .venv/bin/pip install yt-dlp edge-tts numpy
+export GEMINI_API_KEY=...
+.venv/bin/python narrate.py "https://www.youtube.com/watch?v=VIDEO" --shorts 3 --long --low-power
+```
+
+The studio is `./run.sh`, then open http://127.0.0.1:8770. Recommended narrate flags are `--shorts 3 --long` (and `--low-power` if the profile did not turn on by itself). Pick 1080 or 4K in the page when you want a sharper file and can wait.

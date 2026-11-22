@@ -2,6 +2,7 @@ fastapi>=0.115,<1
 uvicorn>=0.30,<1
 python-multipart>=0.0.18
 yt-dlp[default]
+edge-tts
 numpy>=1.26,<3
 Pillow>=10
 faster-whisper>=1.2,<2

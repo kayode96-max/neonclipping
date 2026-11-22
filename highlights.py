@@ -15,9 +15,10 @@ import numpy as np, cv2
 
 FPS = 3; W, H = 160, 90; CUT = 38.0   # mean abs diff above this = hard cut
 
-def _chunk(source, start, length, report):
+def _chunk(source, start, length, report, cheap=False):
+    fps = 2 if cheap else FPS
     cmd = ['ffmpeg', '-v', 'error', '-ss', f'{start}', '-t', f'{length}', '-i', str(source), '-an',
-           '-vf', f'fps={FPS},scale={W}:{H}', '-pix_fmt', 'gray', '-f', 'rawvideo', 'pipe:1']
+           '-vf', f'fps={fps},scale={W}:{H}', '-pix_fmt', 'gray', '-f', 'rawvideo', 'pipe:1']
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=W * H * 64)
     flow, cuts, prev, n = [], [], None, 0
     try:
@@ -32,6 +33,8 @@ def _chunk(source, start, length, report):
             if prev is None: flow.append(0.); cuts.append(0.)
             else:
                 if float(np.mean(cv2.absdiff(cur, prev))) > CUT: flow.append(0.); cuts.append(1.)
+                elif cheap:                       # frame difference on the 160x90 proxy; Farneback is the expensive part
+                    flow.append(float(np.mean(cv2.absdiff(cur, prev))) / 8.0); cuts.append(0.)
                 else:
                     f = cv2.calcOpticalFlowFarneback(prev, cur, None, .5, 2, 9, 2, 5, 1.1, 0)
                     flow.append(float(np.percentile(np.hypot(f[..., 0], f[..., 1]), 90))); cuts.append(0.)
@@ -41,19 +44,19 @@ def _chunk(source, start, length, report):
         if p.poll() is None: p.kill(); p.wait()
         p.stdout.close()
     report(length)
-    k = len(flow) // FPS * FPS
-    f = np.array(flow[:k]).reshape(-1, FPS).mean(1) if k else np.zeros(0)
-    c = np.array(cuts[:k]).reshape(-1, FPS).sum(1) if k else np.zeros(0)
+    k = len(flow) // fps * fps
+    f = np.array(flow[:k]).reshape(-1, fps).mean(1) if k else np.zeros(0)
+    c = np.array(cuts[:k]).reshape(-1, fps).sum(1) if k else np.zeros(0)
     return f, c
 
-def _motion(source, duration, report):
-    workers = max(2, min(12, (os.cpu_count() or 4) - 2))
+def _motion(source, duration, report, cheap=False):
+    workers = 1 if cheap else max(2, min(12, (os.cpu_count() or 4) - 2))
     size = max(60, int(np.ceil(duration / workers / 60) * 60))          # whole-minute chunks
     starts = list(range(0, int(np.ceil(duration)), size))
     done = [0.]
     def rep(sec): done[0] += sec; report(min(done[0], duration))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        jobs = {pool.submit(_chunk, source, s, min(size, duration - s), rep): s for s in starts}
+        jobs = {pool.submit(_chunk, source, s, min(size, duration - s), rep, cheap): s for s in starts}
         parts = {jobs[j]: j.result() for j in as_completed(jobs)}
     f = np.concatenate([parts[s][0] for s in starts]) if starts else np.zeros(0)
     c = np.concatenate([parts[s][1] for s in starts]) if starts else np.zeros(0)
@@ -80,9 +83,12 @@ def _z(x, n, win=120):
     mu = np.convolve(y, k, 'same'); sd = np.sqrt(np.maximum(np.convolve(y * y, k, 'same') - mu * mu, 0)) + 1e-6
     return np.clip((y - mu) / sd / 3.5, 0, 1)
 
-def rank(source, duration, count=4, length=30, report=lambda seconds: None, motion_on=True, extra=None):
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        m = pool.submit(_motion, source, duration, report) if motion_on else pool.submit(lambda: (np.zeros(0), np.zeros(0))); a = pool.submit(_audio, source)
+def rank(source, duration, count=4, length=30, report=lambda seconds: None, motion_on=True, extra=None, cheap=None):
+    if cheap is None:
+        import lowpower
+        cheap = lowpower.enabled()
+    with ThreadPoolExecutor(max_workers=1 if cheap else 2) as pool:
+        m = pool.submit(_motion, source, duration, report, cheap) if motion_on else pool.submit(lambda: (np.zeros(0), np.zeros(0))); a = pool.submit(_audio, source)
         (flow, cuts), (rms, hf) = m.result(), a.result()
     n = max(1, int(np.ceil(duration)))
     has_audio = len(rms) > 0

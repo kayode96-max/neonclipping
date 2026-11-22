@@ -2,7 +2,8 @@
 
 Order: NVENC (NVIDIA GPU) -> AMF (AMD GPU) -> QSV (Intel GPU) -> VideoToolbox (Mac) -> libx264 (any CPU). Each hardware encoder is used only if ffmpeg lists it AND a tiny test
 encode succeeds, so a Mac or a PC without an NVIDIA card goes straight to the right one with no failed first attempt.
-Override with NEONCLIPPING_ENCODER = nvenc | amf | qsv | videotoolbox | x264 | auto (default).
+Override with NEONCLIPPING_ENCODER = nvenc | amf | qsv | videotoolbox | v4l2m2m | x264 | auto (default).
+On a low-power ARM board, h264_v4l2m2m is tried before libx264 when ffmpeg can actually encode with it.
 The functions return lists of ffmpeg argument lists, best first; callers keep the old pattern "try each until one works".
 """
 from functools import lru_cache
@@ -15,7 +16,7 @@ def _listed():
         out = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], capture_output=True, text=True, timeout=15).stdout
     except (OSError, subprocess.SubprocessError):
         return frozenset()
-    return frozenset(name for name in ('h264_nvenc', 'h264_amf', 'h264_qsv', 'h264_videotoolbox') if name in out)
+    return frozenset(name for name in ('h264_nvenc', 'h264_amf', 'h264_qsv', 'h264_videotoolbox', 'h264_v4l2m2m') if name in out)
 
 
 @lru_cache(maxsize=4)
@@ -35,16 +36,27 @@ def works(name):
 
 def h264(cq=20, x264_preset='fast', nv_preset='p5', vt_bitrate='14M'):
     """Encoder argument lists to try in order. The last one (libx264) always exists."""
+    import lowpower
     pick = os.environ.get('NEONCLIPPING_ENCODER', 'auto').strip().lower()
+    x264_preset = lowpower.x264_preset(x264_preset)
+    x264 = ['-c:v', 'libx264', '-crf', str(cq), '-preset', x264_preset]
+    if lowpower.threads():
+        x264 += ['-threads', str(lowpower.threads())]
     options = {
         'nvenc': ['-c:v', 'h264_nvenc', '-preset', nv_preset, '-cq', str(cq)],
         'amf': ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', str(cq), '-qp_p', str(cq)],
         'qsv': ['-c:v', 'h264_qsv', '-global_quality', str(cq), '-preset', 'medium'],
         'videotoolbox': ['-c:v', 'h264_videotoolbox', '-b:v', vt_bitrate, '-allow_sw', '1'],
-        'x264': ['-c:v', 'libx264', '-crf', str(cq), '-preset', x264_preset],
+        'v4l2m2m': ['-c:v', 'h264_v4l2m2m', '-b:v', '4M'],
+        'x264': x264,
     }
-    names = {'nvenc': 'h264_nvenc', 'amf': 'h264_amf', 'qsv': 'h264_qsv', 'videotoolbox': 'h264_videotoolbox', 'x264': 'libx264'}
-    order = [pick] if pick in options else ['nvenc', 'amf', 'qsv', 'videotoolbox']
+    names = {'nvenc': 'h264_nvenc', 'amf': 'h264_amf', 'qsv': 'h264_qsv', 'videotoolbox': 'h264_videotoolbox', 'v4l2m2m': 'h264_v4l2m2m', 'x264': 'libx264'}
+    if pick in options:
+        order = [pick]
+    else:
+        order = ['nvenc', 'amf', 'qsv', 'videotoolbox']
+        if lowpower.enabled():
+            order.append('v4l2m2m')
     out = [options[k] for k in order if k != 'x264' and works(names[k])]
     out.append(options['x264'])
     return out

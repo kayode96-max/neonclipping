@@ -67,8 +67,9 @@ def attach(app,DATA,state,probe):
         p=DATA/(id+'.mp4')
         if not p.exists():raise HTTPException(404,'Source video is unavailable.')
         return p
-    def download(url,job,height=DEFAULT_SOURCE_HEIGHT,window=None):
-        height=source_height(height)
+    def download(url,job,height=DEFAULT_SOURCE_HEIGHT,window=None,touched=False):
+        import lowpower
+        height=lowpower.cap_download(source_height(height),touched)
         # Reuse only this app's own import cache, and only if it was fetched at this quality or better (old caches were 720p).
         for f in DATA.glob('*.request.json'):
             try:
@@ -159,7 +160,7 @@ def attach(app,DATA,state,probe):
         threading.Thread(target=preview_work,daemon=True).start()
         def work():
             try:
-                id,p=download(url,job,body.get('source_height'),window=window);save(job,{'status':'done','id':id,**probe(p)})
+                id,p=download(url,job,body.get('source_height'),window=window,touched=bool(body.get('source_touched')));save(job,{'status':'done','id':id,**probe(p)})
             except TooLong as error:save(job,{'status':'needs_range','duration_total':error.duration,'title':error.title,'message':str(error),'max_range':MAX_RANGE})
             except Exception as error:save(job,{'status':'error','error':'Import failed. Try the original MP4. '+str(error)[-500:]})
         threading.Thread(target=work,daemon=True).start();return {'job':job}
@@ -181,7 +182,7 @@ def attach(app,DATA,state,probe):
         def work():
             began=time.monotonic()
             try:
-                source_id,p=download(url,job,body.get('source_height')) if url else (src.stem,src)
+                source_id,p=download(url,job,body.get('source_height'),touched=bool(body.get('source_touched'))) if url else (src.stem,src)
                 meta=probe(p)
                 state[job].update(source_id=source_id,stage='Scanning movement and audio locally',progress=.3)
                 def report(seconds):state[job].update(progress=min(.95,.3+.65*seconds/max(meta['duration'],1)),stage=f'Scanning movement + audio: {int(seconds)} / {int(meta["duration"])} seconds')

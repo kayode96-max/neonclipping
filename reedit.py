@@ -172,6 +172,8 @@ def attach(app,data,state,probe,export,save):
                 if trim_end>have+.05:raise HTTPException(400,f'The saved video is only {have:.1f}s long here, so the end cannot be later than that.')
                 settings['words']=trim_words(settings['words'],trim_start-float(settings['start']),trim_end-trim_start)
                 settings['start']=trim_start;settings['end']=trim_end
+            # Keep the resolution this clip was saved at. The low-power profile still uses a faster preset.
+            settings['output_touched']=True
             # Validate all inputs synchronously before scheduling any work.
             from layouts import geometry, output_settings
             try:
