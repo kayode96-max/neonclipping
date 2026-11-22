@@ -1,12 +1,10 @@
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 _tmp = tempfile.TemporaryDirectory()
-os.environ['NEONCLIPPING_NO_AUTOUPDATE'] = '1'          # tests must never pip-install anything
 os.environ['NEONCLIPPING_DATA_DIR'] = _tmp.name
 for _k in ('NEONCLIPPING_COOKIES_BROWSER', 'NEONCLIPPING_COOKIES_FILE'):
     os.environ.pop(_k, None)
@@ -134,32 +132,6 @@ class Ladder(unittest.TestCase):
         FakeYT.rule = staticmethod(lambda o: 1)
         with ytdl.YDL({'quiet': True}) as y:
             self.assertEqual(y.download(['u']), 1)
-
-
-class Update(unittest.TestCase):
-    def test_not_checked_again_within_a_day(self):
-        stamp = Path(_tmp.name) / '.ytdlp_checked'
-        stamp.write_text('x', encoding='utf-8')
-        with mock.patch.dict(os.environ, {'NEONCLIPPING_NO_AUTOUPDATE': ''}), \
-             mock.patch.object(ytdl.subprocess, 'run') as run:
-            self.assertFalse(ytdl.update_ytdlp())
-            run.assert_not_called()
-
-    def test_runs_when_stale_and_records_result(self):
-        stamp = Path(_tmp.name) / '.ytdlp_checked'
-        stamp.write_text('x', encoding='utf-8')
-        old = time.time() - 3 * 24 * 3600
-        os.utime(stamp, (old, old))
-        with mock.patch.dict(os.environ, {'NEONCLIPPING_NO_AUTOUPDATE': ''}), \
-             mock.patch.object(ytdl.subprocess, 'run', return_value=mock.Mock(returncode=0)) as run:
-            self.assertTrue(ytdl.update_ytdlp())
-            self.assertIn('yt-dlp[default]', run.call_args[0][0])
-        self.assertTrue(stamp.read_text(encoding='utf-8').endswith('ok'))
-
-    def test_opt_out(self):
-        with mock.patch.object(ytdl.subprocess, 'run') as run:
-            self.assertFalse(ytdl.update_ytdlp())              # NO_AUTOUPDATE=1 is set at the top of this file
-            run.assert_not_called()
 
 
 if __name__ == '__main__':

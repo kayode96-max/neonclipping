@@ -2,8 +2,7 @@
 
 1. PyAV 19 removed the `metadata_errors` argument that faster-whisper 1.2.x still passes to av.open(). Without this shim every
    captioned clip fails with "open() got an unexpected keyword argument 'metadata_errors'".
-2. FFmpeg and FFprobe are required. If they are not installed, a portable copy is fetched once (static-ffmpeg) instead of every
-   import and render failing.
+2. FFmpeg and FFprobe must already be on PATH (install.sh installs the system package). Nothing is downloaded here.
 """
 import shutil
 
@@ -44,14 +43,7 @@ def ffmpeg_ready():
     return bool(shutil.which('ffmpeg') and shutil.which('ffprobe'))
 
 def ensure_ffmpeg():
-    """True when ffmpeg and ffprobe can be run. Tries a portable copy when they are missing."""
-    if ffmpeg_ready():
-        return True
-    try:
-        import static_ffmpeg
-        static_ffmpeg.add_paths()
-    except Exception:       # noqa: BLE001 - offline or package missing: the app shows a clear message instead
-        pass
+    """True when ffmpeg and ffprobe are on PATH. Does not download a copy."""
     return ffmpeg_ready()
 
 def patch_subprocess():

@@ -3,7 +3,7 @@ the game audio is ducked under the voice, captions follow the narration, and the
 full-screen 9:16 shorts (smart crop that follows the action) and/or a 16:9 long-form video with chapters.
 
 CLI:
-  python narrate.py URL_OR_FILE --shorts 3 --long --out /workspace/gta6_out
+  python narrate.py URL_OR_FILE --shorts 3 --long
   python narrate.py --help
 
 Env: GEMINI_API_KEY (required), NEONCLIPPING_GEMINI_MODEL (optional), ELEVENLABS_API_KEY (optional, --tts elevenlabs).
@@ -13,6 +13,8 @@ and long-form is 1280x720, encoded with h264_v4l2m2m when it works, otherwise li
 """
 import argparse, asyncio, base64, hashlib, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
+import envload
+envload.load()
 
 ROOT = Path(__file__).resolve().parent
 CACHE = Path(os.environ.get('NEONCLIPPING_DATA_DIR', str(ROOT / 'data'))) / 'narrate'
@@ -512,7 +514,7 @@ def rerender(json_path, a):
 def parser():
     p = argparse.ArgumentParser(description='Narrated GTA clips: Gemini script + TTS voiceover + captions, 9:16 shorts and 16:9 long-form.')
     p.add_argument('source', help='YouTube/Twitch/Kick URL or a local video file')
-    p.add_argument('--out', default='/workspace/gta6_out')
+    p.add_argument('--out', default='', help='output folder (default: data/narrate-out inside this repo)')
     p.add_argument('--shorts', type=int, default=3, help='number of vertical shorts (0 = none)')
     p.add_argument('--min-len', type=float, default=25); p.add_argument('--max-len', type=float, default=50)
     p.add_argument('--long', action='store_true', help='also make a 16:9 long-form video with intro, outro and chapters')
@@ -542,7 +544,9 @@ def main(argv=None, log=None):
     import lowpower
     if a.fps is None: a.fps = lowpower.short_fps(None)
     if a.long_fps is None: a.long_fps = 30
-    outdir = Path(a.out); outdir.mkdir(parents=True, exist_ok=True)
+    outdir = Path(a.out) if a.out else ROOT / 'data' / 'narrate-out'
+    outdir.mkdir(parents=True, exist_ok=True)
+    a.out = str(outdir)
     if lowpower.enabled():
         sw, sh = lowpower.short_size(); lw, lh = lowpower.long_size()
         LOG(f'Low-power profile: shorts {sw}x{sh}@{a.fps}fps, long {lw}x{lh}@{a.long_fps}fps, download 720p, x264 ultrafast / v4l2m2m, no Whisper')

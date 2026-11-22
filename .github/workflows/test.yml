@@ -55,17 +55,13 @@ jobs:
       - name: ffmpeg (macOS)
         if: runner.os == 'macOS'
         run: brew install ffmpeg
-      - name: Run the real installer against this exact commit
-        run: |
-          export NEONCLIPPING_DIR="$RUNNER_TEMP/nc"
-          export NEONCLIPPING_ZIP="https://github.com/${{ github.repository }}/archive/${{ github.sha }}.zip"
-          export NEONCLIPPING_NO_START=1
-          bash install.sh
+      - name: Run the installer in this checkout
+        run: bash install.sh
       - name: Start it and wait for the health check
         run: |
-          "$RUNNER_TEMP/nc/start.sh" > "$RUNNER_TEMP/nc/server.log" 2>&1 &
+          ./run.sh > "$RUNNER_TEMP/server.log" 2>&1 &
           for i in $(seq 1 45); do
             if curl -fs http://127.0.0.1:8770/healthz; then echo; echo "server is up"; exit 0; fi
             sleep 2
           done
-          echo "server did not start"; cat "$RUNNER_TEMP/nc/server.log"; exit 1
+          echo "server did not start"; cat "$RUNNER_TEMP/server.log"; exit 1

@@ -1,6 +1,7 @@
 # whitelist: only source ships
 *
 !.gitignore
+!.env
 !LICENSE
 !README.md
 !requirements.txt

@@ -3,8 +3,10 @@ import json, subprocess, uuid, threading, shutil
 import sys
 import time
 import os
-import compat    # first: PyAV 19 shim and a portable FFmpeg when none is installed
-import ytdl      # then: keeps yt-dlp fresh before it is imported, and handles YouTube's bot check
+import envload
+envload.load()   # .env in this folder; values already in the environment win
+import compat    # first: PyAV 19 shim. FFmpeg comes from the system (apt/brew), not a download.
+import ytdl      # YouTube downloads and the bot-check retry. Does not upgrade packages.
 import report    # local error log + "Report a problem"
 import encoders  # picks NVENC / VideoToolbox / x264 by what works on this computer
 import languages
@@ -677,18 +679,6 @@ def ytdl_settings_set(b:dict):
  else:cfg.pop('cookies_browser',None)
  ytdl.DATA.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(cfg),encoding='utf-8')
  return {'ok':True,'cookies_browser':browser}
-
-@app.get('/update/status')
-def update_status():
- import updater
- busy=any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values()))
- return updater.status(ROOT,busy)
-@app.post('/update/apply')
-def update_apply():
- import updater
- ok,msg=updater.apply(ROOT,lambda:any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values())))
- if not ok:raise HTTPException(409,msg)
- return {'ok':True,'message':msg}
 
 @app.get('/runtime')
 def runtime():

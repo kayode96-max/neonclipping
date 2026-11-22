@@ -261,29 +261,6 @@ fetch('/healthz').then(r=>r.json()).then(h=>{if(h&&h.ffmpeg===false){const m='FF
 
 (async()=>{try{const d=await request('/supporters');const list=(d&&d.supporters)||[];if(!list.length)return;const box=$('supporters-list');list.forEach(s=>{const chip=document.createElement('span');chip.className='supporter';const n=document.createElement('span');n.textContent=s.name;chip.append(n);if(s.amount){const a=document.createElement('em');a.textContent=s.amount;chip.append(a);}box.append(chip);});$('supporters').hidden=false;}catch(e){}})();
 
-// In-app update: checks GitHub once, offers one click, and can update by itself when nothing is running.
-(async()=>{
- const bar=$('update-bar');if(!bar)return;
- let timer=null;
- const waitBack=async()=>{for(let i=0;i<120;i++){await new Promise(r=>setTimeout(r,2500));try{const h=await fetch('/healthz');if(h.ok){location.reload();return;}}catch(e){}}$('update-text').textContent='The app did not come back. Start NeonClipping again from the desktop shortcut.';};
- const run=async()=>{clearInterval(timer);$('update-now').disabled=true;$('update-cancel').hidden=true;$('update-text').textContent='Updating... keep this window open. The page reloads by itself.';
-  try{await request('/update/apply',{});}catch(e){$('update-text').textContent=e.message;$('update-now').disabled=false;return;}
-  for(let i=0;i<400;i++){await new Promise(r=>setTimeout(r,1500));try{const s=await (await fetch('/update/status')).json();if(s.error){$('update-text').textContent='Update failed: '+s.error;$('update-now').disabled=false;return;}if(s.stage)$('update-text').textContent=s.stage;}catch(e){break;}}
-  waitBack();};
- try{
-  const s=await request('/update/status');
-  if(!s.available)return;
-  bar.hidden=false;
-  $('update-text').innerHTML='<b>A new version of NeonClipping is ready.</b> It has the latest fixes and features.';
-  $('update-now').onclick=run;
-  $('update-auto').checked=localStorage.getItem('nc_auto_update')!=='0';
-  $('update-auto').onchange=()=>localStorage.setItem('nc_auto_update',$('update-auto').checked?'1':'0');
-  if($('update-auto').checked&&!s.busy){let n=8;$('update-cancel').hidden=false;
-   $('update-cancel').onclick=()=>{clearInterval(timer);$('update-cancel').hidden=true;$('update-auto').checked=false;localStorage.setItem('nc_auto_update','0');$('update-text').innerHTML='<b>A new version of NeonClipping is ready.</b> Press Update now when you are ready.';};
-   timer=setInterval(()=>{n--;$('update-text').innerHTML='<b>Updating NeonClipping in '+n+' s</b> (new fixes and features).';if(n<=0)run();},1000);}
- }catch(e){}
-})();
-
 function camFilter(){const g=k=>Number(document.getElementById('cam-'+k)?.value);const c=g('contrast')||1,b=g('brightness')||0,s=isNaN(g('saturation'))?1:g('saturation'),k=g('clarity')||0;return `contrast(${c}) brightness(${1+b}) saturate(${s})`+(k>0.05?` contrast(${1+k*0.12})`:'');}
 ['contrast','brightness','saturation','clarity'].forEach(k=>{const el=document.getElementById('cam-'+k);if(!el)return;const out=document.getElementById('cam-'+k+'-o');const show=()=>{if(out)out.textContent=Number(el.value).toFixed(2);};el.addEventListener('input',()=>{show();if(typeof paint==='function')paint();});show();});
 const camReset=document.getElementById('cam-reset');if(camReset)camReset.onclick=()=>{const d={contrast:1,brightness:0,saturation:1,clarity:0};for(const k in d){const el=document.getElementById('cam-'+k);if(el){el.value=d[k];el.dispatchEvent(new Event('input'));}}};

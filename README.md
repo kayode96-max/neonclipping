@@ -109,20 +109,20 @@ Run the portable regression tests with `python -m unittest discover -s tests -v`
 
 ## Install
 
-**Easiest (Windows):** download [`NeonClipping-Setup.bat`](https://github.com/iamajmeena/neonclipping/releases/latest/download/NeonClipping-Setup.bat) from the [website](https://iamajmeena.github.io/neonclipping/) or the Releases page and double-click it. It checks your PC, installs Python and FFmpeg if missing, installs NeonClipping into `%LOCALAPPDATA%\NeonClipping`, creates a Desktop shortcut and opens the app. Mac/Linux: `install.sh` (new, not yet tested on a real Mac). Or follow the steps below.
+Install and run inside the folder you cloned. The scripts do not create another NeonClipping directory.
 
-Requirements: Python 3.10 to 3.13 (the newest Python often has no wheels for the speech/vision packages yet; the Mac/Linux installer picks a supported one for you), FFmpeg on PATH. Optional but recommended: [Ollama](https://ollama.com) with `ollama pull llama3.2:3b` for AI titles, hooks and scores (without it clips are picked by the audio/motion score), and an NVIDIA GPU for NVENC and faster-whisper.
+System packages on Debian / Ubuntu / Arduino UNO Q: `ffmpeg`, `python3`, `python3-pip`, `python3-venv`. Python 3.11, 3.12 or 3.13. `./install.sh` installs those with apt when they are missing, then creates `.venv` here and installs `requirements.txt`.
 
 ```bash
-git clone https://github.com/iamajmeena/neonclipping
-cd neonclipping
-# Windows
-./run.ps1
-# Linux / macOS
+./install.sh
 ./run.sh
 ```
 
 Open <http://127.0.0.1:8770>, paste a link, press **⚡ Make clips**.
+
+Windows, from this same folder: `.\install.ps1` then `.\run.ps1` (needs Python 3.11+ and FFmpeg on PATH).
+
+Keys and switches live in `.env` in this folder (blank until you fill them). The app loads that file on startup. Clips and downloads go in `./data`.
 
 Optional GPU speech model support (only used when a video has no YouTube captions):
 
@@ -130,17 +130,18 @@ Optional GPU speech model support (only used when a video has no YouTube caption
 .venv/bin/pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
 ```
 
-Set `NEONCLIPPING_CPU=1` to force CPU. Set `NEONCLIPPING_PORT=9000` to use another port.
+Set `NEONCLIPPING_CPU=1` in `.env` to force CPU. Set `NEONCLIPPING_PORT=9000` to use another port.
 
 **Mac / Linux / no NVIDIA GPU:** the video encoder is chosen by what works on your computer: NVIDIA NVENC, then Apple VideoToolbox, then the CPU encoder (x264). Force one with `NEONCLIPPING_ENCODER=nvenc|videotoolbox|x264`. The speech model skips the GPU attempt when no CUDA GPU exists and runs on the CPU. `install.sh` and the unit tests run automatically on macOS, Ubuntu and Windows machines for every change (see the *Actions* tab); the maintainer has not yet tried the Mac installer on his own Mac, so tell us if it misbehaves (Report a problem).
 
-**Settings (environment variables):** `NEONCLIPPING_LIVE_AUTO_HOURS` (default 3) and `NEONCLIPPING_MIN_FREE_GB` (default 8) control the unattended creator-watch live sessions; a manual Live clipping session has no time cap and no disk guard.
+**Settings:** every switch is in `.env`. `NEONCLIPPING_LIVE_AUTO_HOURS` (default 3) and `NEONCLIPPING_MIN_FREE_GB` (default 8) control unattended creator-watch sessions; a manual Live clipping session has no time cap and no disk guard. Leave a value blank to keep the default.
 
 ## How it is built
 
 | File | Job |
 |---|---|
 | `app.py` | FastAPI server, `/make` pipeline, export, library |
+| `envload.py` | Loads `.env` from this folder at startup |
 | `lowpower.py` | 720p30 / ultrafast profile for small ARM boards |
 | `smart.py` | Moment scoring: transcript + local LLM, sentence snapping |
 | `highlights.py` | Audio-jump / shout / optical-flow / cut ranking, parallel decode |
@@ -240,11 +241,10 @@ If a video only exists at 720p on YouTube (some new uploads and low-quality sour
 
 ## "Sign in to confirm you're not a bot" (YouTube bot check)
 
-Some connections get this from YouTube: shared or mobile-data internet, VPNs, office/hostel Wi-Fi, or an old downloader. NeonClipping handles it for you in this order, with no setup:
+Some connections get this from YouTube: shared or mobile-data internet, VPNs, office/hostel Wi-Fi, or an old downloader. NeonClipping does not upgrade yt-dlp by itself. It handles the block in this order, with no setup:
 
-1. **Keeps yt-dlp fresh.** Once a day at start-up it upgrades `yt-dlp[default]` (offline-safe). Turn off with `NEONCLIPPING_NO_AUTOUPDATE=1`.
-2. **Retries in other YouTube modes** (TV, Safari, iOS, mobile web clients) instead of failing on the first block.
-3. **Shows one short message** with the fixes below instead of a long English error.
+1. **Retries in other YouTube modes** (TV, Safari, iOS, mobile web clients) instead of failing on the first block.
+2. **Shows one short message** with the fixes below instead of a long English error.
 
 If YouTube still blocks you, pick one:
 
@@ -293,9 +293,7 @@ MIT. See [LICENSE](LICENSE).
 
 ## Updating
 
-NeonClipping now updates itself. When a new version is on GitHub, a green banner appears at the top of the page; press **Update now**, or leave it and it updates automatically after a short countdown when nothing is running. Your clips, settings and downloaded models are kept, one backup of the replaced files stays in `.update-backup/`, and the app restarts by itself.
-
-If you installed an older version, run `NeonClipping-Setup.bat` once more to get this feature. After that no re-install is needed. A git checkout is never touched by the updater (use `git pull`).
+This copy does not check GitHub or replace its own files. Update it yourself with `git pull` in this folder, then `./install.sh` if `requirements.txt` changed.
 
 ## Look and feel of the opening heading
 
@@ -315,8 +313,8 @@ with intro, chapters and outro (chapter markers in the MP4 and timestamps in the
 title, description, tags, hashtags and TikTok caption. Captions follow the voiceover's word boundaries, so this pipeline never runs faster-whisper.
 On a small ARM board the same command uses the low-power sizes below.
 
-    export GEMINI_API_KEY=...            # required
-    .venv/bin/python narrate.py "https://www.youtube.com/watch?v=QdBZY2fkU-0" --shorts 3 --long --out /workspace/gta6_out
+    # put the key in .env as GEMINI_API_KEY=...
+    .venv/bin/python narrate.py "https://www.youtube.com/watch?v=QdBZY2fkU-0" --shorts 3 --long
     .venv/bin/python narrate.py URL --rerender out/short_01_*.json --voice en-US-ChristopherNeural   # re-voice without new Gemini calls
 
 Options: `--tone`, `--voice`, `--tts edge|elevenlabs` (needs `ELEVENLABS_API_KEY`), `--audio duck|mute`, `--duck 0.15`, `--fill 1.0`,
@@ -335,20 +333,17 @@ What changes when the profile is on:
 - Gemini gets fewer, smaller JPEGs, grabbed in one ffmpeg call and cached. Motion is a 160×90 frame-difference proxy (one decode), not a second optical-flow pass, unless you pick Deep.
 - Crop, scale, captions and the ducked audio mix are one ffmpeg graph. Downloads are cached under `data/`. Parallel downloads and scans stay at one job so a 2 GB board does not swap.
 
-Install ffmpeg, a virtualenv and edge-tts:
+Quick start, from the folder you already cloned (nothing is copied to another directory):
 
 ```bash
-sudo apt update
-sudo apt install -y ffmpeg python3-venv python3-pip
-git clone https://github.com/iamajmeena/neonclipping
-cd neonclipping
-python3 -m venv .venv
-# narrated clips only (small install)
-.venv/bin/pip install -r requirements.txt
-# requirements.txt includes edge-tts. On a 2 GB board you can instead install just:
-# .venv/bin/pip install yt-dlp edge-tts numpy
-export GEMINI_API_KEY=...
-.venv/bin/python narrate.py "https://www.youtube.com/watch?v=VIDEO" --shorts 3 --long --low-power
+./install.sh
+./run.sh
 ```
 
-The studio is `./run.sh`, then open http://127.0.0.1:8770. Recommended narrate flags are `--shorts 3 --long` (and `--low-power` if the profile did not turn on by itself). Pick 1080 or 4K in the page when you want a sharper file and can wait.
+`./install.sh` installs `ffmpeg`, `python3`, `python3-pip` and `python3-venv` when they are missing, then installs `requirements.txt` into `.venv` in this folder. Put `GEMINI_API_KEY` in `.env` before narrated clips. Then:
+
+```bash
+.venv/bin/python narrate.py "https://www.youtube.com/watch?v=VIDEO" --shorts 3 --long
+```
+
+Open http://127.0.0.1:8770 for the studio. The low-power profile turns on by itself on this board. Pick 1080 or 4K on the page when you want a sharper file and can wait.
